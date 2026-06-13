@@ -1,125 +1,153 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Purffle_Studios-AI_Video_Creator-355C7D?style=for-the-badge&logo=youtube&logoColor=white" alt="PurffleVision"/>
-</p>
+<div align="center">
 
-<h1 align="center">PurffleVision — AI Video Creation Studio</h1>
+# PurffleVision — AI Video Creation Studio
 
-<p align="center">
-  <strong>Transform any topic into a cinematic video with AI — script, voiceover, visuals, and upload — all in one click.</strong>
-</p>
+**Generate professional YouTube videos from a single topic using AI-powered scripts, voiceovers, stock footage, and automated editing.**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.9+-blue?style=flat-square&logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/flask-web_app-000000?style=flat-square&logo=flask&logoColor=white" />
-  <img src="https://img.shields.io/badge/OpenAI-GPT_3.5-412991?style=flat-square&logo=openai&logoColor=white" />
-  <img src="https://img.shields.io/badge/MoviePy-video_engine-FF6F00?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
-</p>
+[![Python](https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Flask](https://img.shields.io/badge/flask-web_app-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
+
+[Features](#-features) · [Screenshots](#-screenshots) · [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Tech Stack](#%EF%B8%8F-tech-stack)
+
+</div>
 
 ---
 
-## What It Does
+## 📸 Screenshots
 
-PurffleVision is a full-stack AI video creation platform built with Flask. Give it a topic, and it handles the entire pipeline:
+<div align="center">
 
-1. **Script Generation** — GPT-3.5 writes an engaging video script tailored to your topic and language
-2. **Voiceover Synthesis** — gTTS converts the script to natural-sounding speech in 50+ languages
-3. **Visual Assembly** — Choose between AI-generated images (DALL-E) or stock video clips (Pexels)
-4. **Video Compilation** — MoviePy stitches everything together with animated subtitles and transitions
-5. **YouTube Upload** — One-click OAuth upload directly to your YouTube channel
+![PurffleVision Dashboard](screenshots/dashboard.png)
 
-## Features
+*Dark-themed UI with glass morphism design, animated gradient orbs, and a 5-step video generation pipeline*
 
-- **Multi-language support** — Generate videos in any of 50+ languages supported by gTTS
-- **Dual visual modes** — AI-generated imagery via DALL-E or curated stock footage from Pexels
-- **Animated subtitles** — Auto-synced, fade-in/fade-out captions overlaid on every clip
-- **YouTube integration** — OAuth 2.0 authentication and direct upload with custom metadata
-- **Modern UI** — Clean, responsive Bootstrap 5 interface with Purffle Studios branding
+</div>
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python, Flask |
-| AI | OpenAI GPT-3.5, DALL-E |
-| TTS | Google Text-to-Speech (gTTS) |
-| Video | MoviePy, ImageMagick |
-| Stock Media | Pexels API |
-| Upload | YouTube Data API v3 |
-| Frontend | Bootstrap 5, Font Awesome |
+## 🎬 What is PurffleVision?
 
-## Quick Start
+PurffleVision is an **AI-powered video creation platform** that turns any topic into a fully produced video. Built with Python and Flask, it automates the entire video production workflow — from scriptwriting to final render.
+
+Ideal for **content creators**, **YouTubers**, **digital marketers**, and anyone who wants to produce professional video content at scale without manual editing.
+
+---
+
+## 🔄 How It Works
+
+```
+Topic → AI Script → Voice Synthesis → Stock Footage / AI Images → Video Assembly → Export / Upload
+```
+
+| Step | What Happens | Technology |
+|------|-------------|------------|
+| 1. **Script** | GPT writes an engaging, retention-optimized video script | OpenAI API |
+| 2. **Voiceover** | Text-to-speech in 50+ languages | Google TTS (gTTS) |
+| 3. **Visuals** | Fetches matching stock videos or generates AI images | Pexels API / DALL-E |
+| 4. **Assembly** | Composites footage, adds subtitles, overlays audio | MoviePy + ImageMagick |
+| 5. **Export** | Renders final MP4, optional direct YouTube upload | YouTube Data API v3 |
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **One-click generation** | Enter a topic, click Generate, get a complete video |
+| **50+ languages** | Voiceovers in English, Spanish, Hindi, Japanese, and more |
+| **Dual visual modes** | Stock footage (Pexels) or AI-generated images (DALL-E) |
+| **Animated subtitles** | Word-wrapped, fade-animated captions synced to voiceover |
+| **YouTube upload** | OAuth 2.0 integration for direct channel publishing |
+| **Modern dark UI** | Glass morphism cards, animated orbs, responsive design |
+| **Smart validation** | Clear error messages when API keys aren't configured |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.9+
-- [ImageMagick](https://imagemagick.org/script/download.php) installed and on PATH
-- API keys for OpenAI and Pexels
-- Google OAuth credentials for YouTube upload (optional)
+- [ImageMagick](https://imagemagick.org/script/download.php) installed
+- API keys: [OpenAI](https://platform.openai.com/api-keys) + [Pexels](https://www.pexels.com/api/)
 
-### Installation
+### Install & Run
 
 ```bash
-# Clone the repo
+# Clone
 git clone https://github.com/Chamanrajragu/purffle-vision.git
 cd purffle-vision
 
-# Create virtual environment
+# Setup
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
+# Configure
 cp .env.example .env
-# Edit .env with your API keys
-```
+# Edit .env → add your OPENAI_API_KEY and PEXELS_API_KEY
 
-### Run
-
-```bash
+# Run
 python app.py
 ```
 
-Open `http://localhost:5000` in your browser.
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | Your OpenAI API key |
-| `PEXELS_API_KEY` | Your Pexels API key |
-| `GOOGLE_CLIENT_SECRETS_FILE` | Path to Google OAuth credentials (default: `credentials.json`) |
-
-## Project Structure
-
-```
-purffle-vision/
-├── app.py                 # Flask application & video pipeline
-├── requirements.txt       # Python dependencies
-├── .env.example           # Environment variable template
-├── templates/
-│   └── index.html         # Main UI template
-├── static/
-│   └── brand/             # Purffle Studios assets
-├── output_videos/         # Generated videos (gitignored)
-├── ai_generated_images/   # DALL-E outputs (gitignored)
-└── ai_generated_videos/   # AI video outputs (gitignored)
-```
-
-## Screenshots
-
-<p align="center">
-  <em>Modern, clean interface for creating AI-powered videos</em>
-</p>
-
-> Enter a topic → Choose your settings → Hit Generate → Watch your video come to life
+Open **http://localhost:5000** in your browser.
 
 ---
 
-<p align="center">
-  Built with passion by <a href="https://github.com/Chamanrajragu"><strong>Purffle Studios</strong></a>
-  <br/>
-  <sub>Part of the Purffle ecosystem — PurffleTools · PurffleAI · Purffle.com</sub>
-</p>
+## 🔑 Environment Variables
+
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `OPENAI_API_KEY` | ✅ | OpenAI API key for script generation + DALL-E |
+| `PEXELS_API_KEY` | ✅ | Pexels API key for stock video footage |
+
+---
+
+## 🏗️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Python 3.9+, Flask |
+| **AI Engine** | OpenAI GPT, DALL-E |
+| **Voice** | Google Text-to-Speech (gTTS) |
+| **Video** | MoviePy, ImageMagick, Pillow |
+| **Media** | Pexels API |
+| **Upload** | YouTube Data API v3, Google OAuth 2.0 |
+| **Frontend** | Custom CSS, Inter font, glass morphism |
+
+---
+
+## 📁 Project Structure
+
+```
+purffle-vision/
+├── app.py                 # Flask app + video generation pipeline
+├── templates/
+│   └── index.html         # Modern dark-themed UI
+├── static/
+│   ├── uploads/           # Generated videos served here
+│   └── brand/             # Purffle branding assets
+├── screenshots/           # README screenshots
+├── requirements.txt       # Python dependencies
+├── .env.example           # API key template
+└── output_videos/         # Raw generated videos
+```
+
+---
+
+## ⚠️ Disclaimer
+
+> This is an open-source video creation tool for educational and creative purposes. Requires your own API keys. AI-generated content should be reviewed before publishing. Not affiliated with YouTube, OpenAI, or Pexels.
+
+---
+
+<div align="center">
+
+**Built by [Chaman Raj](https://github.com/Chamanrajragu)**
+
+Part of the **Purffle** ecosystem — PurffleTools · PurffleAI · [Purffle.com](https://purffle.com)
+
+</div>
