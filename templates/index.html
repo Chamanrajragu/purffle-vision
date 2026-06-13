@@ -3,250 +3,231 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Purffle Studios | AI Video Creator</title>
-
-  <!-- Bootstrap -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <!-- Inter Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <!-- Font Awesome -->
+  <title>PurffleVision — AI Video Creator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
-
   <style>
-    :root {
-      --brand: #355C7D;
-      --accent: #4f46e5;
-      --text-dark: #0f172a;
-      --text-muted: #64748b;
-      --bg: #f8fafc;
-      --white: #ffffff;
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{
+      --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
+      --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+      --purple:#a855f7;--blue:#3b82f6;--teal:#14b8a6;--pink:#ec4899;
+      --grad:linear-gradient(135deg,#a855f7,#3b82f6,#14b8a6);
+      --grad2:linear-gradient(135deg,#ec4899,#a855f7,#3b82f6);
     }
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg);
-      color: var(--text-dark);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
+    /* Animated background mesh */
+    .bg-mesh{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+    .bg-mesh .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.15;animation:float 20s ease-in-out infinite}
+    .bg-mesh .orb:nth-child(1){width:600px;height:600px;background:#a855f7;top:-200px;left:-100px;animation-delay:0s}
+    .bg-mesh .orb:nth-child(2){width:500px;height:500px;background:#3b82f6;top:50%;right:-150px;animation-delay:-7s}
+    .bg-mesh .orb:nth-child(3){width:400px;height:400px;background:#14b8a6;bottom:-100px;left:30%;animation-delay:-14s}
+    @keyframes float{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(30px,-50px) scale(1.05)}66%{transform:translate(-20px,30px) scale(.95)}}
+
+    .wrapper{position:relative;z-index:1}
 
     /* Navbar */
-    .navbar {
-      background-color: var(--brand);
-      color: #fff;
-      padding: 0.5rem 0;
-    }
+    nav{display:flex;align-items:center;justify-content:space-between;padding:16px 40px;border-bottom:1px solid rgba(255,255,255,.06);backdrop-filter:blur(20px);background:rgba(9,9,11,.7);position:sticky;top:0;z-index:50}
+    .logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+    .logo-icon{width:36px;height:36px;background:var(--grad);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff}
+    .logo span{font-weight:800;font-size:18px;letter-spacing:-.02em}
+    .logo .tag{font-size:11px;font-weight:600;color:var(--purple);background:rgba(168,85,247,.12);padding:2px 8px;border-radius:6px;margin-left:4px}
+    .nav-links{display:flex;gap:8px}
+    .nav-links a{color:var(--text2);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:.2s}
+    .nav-links a:hover{color:var(--text);background:var(--surface)}
 
-    .navbar .brand {
-      display: flex;
-      align-items: center;
-      text-decoration: none;
-      color: #fff;
-      font-weight: 800;
-      letter-spacing: 0.3px;
-    }
+    /* Hero */
+    .hero{text-align:center;padding:80px 24px 48px;max-width:800px;margin:0 auto}
+    .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:100px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.2);color:var(--purple);font-size:12px;font-weight:600;margin-bottom:24px}
+    .hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--purple);animation:pulse 2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .hero h1{font-size:clamp(36px,5vw,56px);font-weight:900;letter-spacing:-.03em;line-height:1.1;margin-bottom:16px}
+    .hero h1 .gradient{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .hero p{color:var(--text2);font-size:17px;line-height:1.7;max-width:600px;margin:0 auto}
 
-    .navbar .brand img {
-      height: 42px;
-      margin-right: 10px;
-    }
+    /* Steps bar */
+    .steps{display:flex;justify-content:center;gap:0;margin:0 auto 48px;max-width:700px;padding:0 24px}
+    .step{flex:1;text-align:center;position:relative;padding:16px 8px}
+    .step::after{content:'';position:absolute;top:26px;right:-50%;width:100%;height:2px;background:var(--surface2)}
+    .step:last-child::after{display:none}
+    .step-num{width:32px;height:32px;border-radius:50%;background:var(--surface2);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:13px;font-weight:700;position:relative;z-index:1;transition:.3s}
+    .step-label{font-size:11px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+    .step.active .step-num{background:var(--purple);border-color:var(--purple);box-shadow:0 0 20px rgba(168,85,247,.3)}
+    .step.active .step-label{color:var(--purple)}
 
-    .navbar .social-icons a {
-      color: #fff;
-      font-size: 1.1rem;
-      margin-left: 12px;
-      transition: transform 0.2s, opacity 0.2s;
-    }
+    /* Main form card */
+    .form-container{max-width:640px;margin:0 auto 64px;padding:0 24px}
+    .glass-card{background:rgba(24,24,27,.8);backdrop-filter:blur(20px);border:1px solid rgba(63,63,70,.5);border-radius:20px;padding:40px;position:relative;overflow:hidden}
+    .glass-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.3),transparent)}
+    .card-header{margin-bottom:32px}
+    .card-header h2{font-size:22px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px}
+    .card-header p{color:var(--text2);font-size:14px}
 
-    .navbar .social-icons a:hover {
-      transform: translateY(-2px);
-      opacity: 0.85;
-    }
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .form-grid .full{grid-column:1/-1}
+    .field label{display:block;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+    .field input,.field select{width:100%;padding:12px 16px;background:var(--bg);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:14px;font-family:inherit;transition:.2s;appearance:none;-webkit-appearance:none}
+    .field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2371717a' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px}
+    .field input:focus,.field select:focus{outline:none;border-color:var(--purple);box-shadow:0 0 0 3px rgba(168,85,247,.15)}
+    .field input::placeholder{color:var(--text3)}
 
-    /* Hero Section */
-    .hero {
-      text-align: center;
-      padding: 3rem 1rem 1.5rem;
-      background: linear-gradient(135deg, #e0f2fe, #f3e8ff);
-      border-bottom: 1px solid #e2e8f0;
-    }
+    .submit-btn{width:100%;padding:14px;border:none;border-radius:14px;background:var(--grad);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;transition:.3s;margin-top:28px;position:relative;overflow:hidden}
+    .submit-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);transform:translateX(-100%);transition:.6s}
+    .submit-btn:hover::before{transform:translateX(100%)}
+    .submit-btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(168,85,247,.3)}
+    .submit-btn:active{transform:translateY(0)}
 
-    .hero h1 {
-      font-weight: 800;
-      margin-bottom: 0.5rem;
-    }
+    /* Error alert */
+    .alert-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:14px 18px;color:#fca5a5;font-size:14px;margin-bottom:24px;display:flex;align-items:center;gap:10px}
+    .alert-error i{color:#ef4444}
 
-    .hero p {
-      color: var(--text-muted);
-      max-width: 750px;
-      margin: 0 auto;
-      font-weight: 500;
-    }
+    /* Results */
+    .results{max-width:640px;margin:0 auto 64px;padding:0 24px;display:flex;flex-direction:column;gap:24px}
+    .result-card{background:rgba(24,24,27,.8);backdrop-filter:blur(20px);border:1px solid rgba(63,63,70,.5);border-radius:20px;padding:32px;position:relative;overflow:hidden}
+    .result-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(20,184,166,.3),transparent)}
+    .result-card h3{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+    .result-card h3 i{color:var(--teal);font-size:14px}
+    .result-card video{width:100%;border-radius:12px;border:1px solid var(--border);margin-bottom:12px}
+    .result-card pre{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:20px;font-size:13px;line-height:1.7;color:var(--text2);white-space:pre-wrap;font-family:'Inter',sans-serif;max-height:300px;overflow-y:auto}
+    .btn-row{display:flex;gap:10px;flex-wrap:wrap}
+    .btn-sm{padding:8px 16px;border-radius:10px;font-size:13px;font-weight:600;text-decoration:none;border:1px solid var(--border);color:var(--text2);background:transparent;transition:.2s;display:inline-flex;align-items:center;gap:6px}
+    .btn-sm:hover{border-color:var(--purple);color:var(--text);background:rgba(168,85,247,.08)}
+    .btn-sm.primary{background:var(--purple);border-color:var(--purple);color:#fff}
+    .btn-sm.primary:hover{background:#9333ea}
 
-    /* Info Band */
-    .info-band {
-      background: #f1f5f9;
-      padding: 0.8rem;
-      text-align: center;
-      font-weight: 500;
-      color: var(--text-dark);
-    }
+    /* Footer */
+    footer{text-align:center;padding:32px;border-top:1px solid rgba(255,255,255,.06);color:var(--text3);font-size:13px}
+    footer strong{color:var(--text2)}
 
-    /* Card */
-    .card {
-      background: var(--white);
-      border-radius: 14px;
-      box-shadow: 0 5px 25px rgba(0, 0, 0, 0.05);
-      padding: 2rem;
-      margin-top: 2rem;
-      border: none;
-    }
-
-    .btn-primary {
-      background: linear-gradient(90deg, #0ea5e9, #6366f1);
-      border: none;
-      font-weight: 700;
-      transition: opacity 0.3s;
-    }
-
-    .btn-primary:hover {
-      opacity: 0.9;
-    }
-
-    footer {
-      margin-top: auto;
-      background: var(--white);
-      border-top: 1px solid #e2e8f0;
-      text-align: center;
-      padding: 1rem 0;
-      color: var(--text-muted);
-      font-size: 0.9rem;
+    @media(max-width:640px){
+      nav{padding:14px 20px}
+      .hero{padding:48px 20px 32px}
+      .form-grid{grid-template-columns:1fr}
+      .glass-card{padding:24px}
+      .steps{flex-wrap:wrap;gap:0}
     }
   </style>
 </head>
 <body>
-  <!-- Navbar -->
-  <nav class="navbar">
-    <div class="container d-flex justify-content-between align-items-center">
-      <a href="/" class="brand">
-        <img src="{{ url_for('static', filename='brand/purffle-logo.png') }}" alt="Purffle Studios Logo" />
-        Purffle Studios
+  <div class="bg-mesh">
+    <div class="orb"></div><div class="orb"></div><div class="orb"></div>
+  </div>
+
+  <div class="wrapper">
+    <nav>
+      <a href="/" class="logo">
+        <div class="logo-icon">P</div>
+        <span>PurffleVision</span>
+        <span class="tag">STUDIO</span>
       </a>
-      <div class="social-icons">
+      <div class="nav-links">
         <a href="https://www.youtube.com/@Purffle" target="_blank"><i class="fab fa-youtube"></i></a>
         <a href="https://www.linkedin.com/in/chamanrajr/" target="_blank"><i class="fab fa-linkedin-in"></i></a>
         <a href="https://instagram.com/@purfflestudio" target="_blank"><i class="fab fa-instagram"></i></a>
       </div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-badge"><span class="dot"></span> AI-Powered Video Creation</div>
+      <h1>Create stunning videos <br/><span class="gradient">with artificial intelligence</span></h1>
+      <p>Enter a topic, pick your settings, and watch PurffleVision generate scripts, voiceovers, visuals, and a fully edited video — ready to upload to YouTube.</p>
+    </section>
+
+    <div class="steps">
+      <div class="step active"><div class="step-num">1</div><div class="step-label">Topic</div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-label">AI Script</div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-label">Voiceover</div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-label">Visuals</div></div>
+      <div class="step"><div class="step-num">5</div><div class="step-label">Export</div></div>
     </div>
-  </nav>
 
-  <!-- Hero -->
-  <section class="hero">
-    <h1>Purffle Studios — AI Video Creator</h1>
+    <div class="form-container">
+      {% if error %}
+      <div class="alert-error"><i class="fas fa-exclamation-circle"></i> {{ error }}</div>
+      {% endif %}
 
-    <p>
-      Transform your ideas into stunning cinematic videos. Our AI pipeline generates scripts, 
-      creates realistic voiceovers, fetches visuals, and assembles your final edit — 
-      all within a few clicks.
-    </p>
-  </section>
+      <div class="glass-card">
+        <div class="card-header">
+          <h2>Project Settings</h2>
+          <p>Configure your video generation pipeline</p>
+        </div>
 
-  <!-- Info Band -->
-  <div class="info-band">
-    How it works: Enter a topic → AI writes your script → Generates voiceover → Fetches visuals → MoviePy compiles everything into a share-ready MP4.
-  </div>
-
-  <!-- Main -->
-  <main class="container" style="max-width: 900px;">
-    <div class="card">
-      <h5>Project Settings</h5>
-      <p class="text-muted mb-4">Provide your topic and choose how you want your video produced.</p>
-
-      <form method="POST" action="{{ url_for('index') }}">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label">Topic</label>
-            <input type="text" class="form-control" name="topic" placeholder="e.g., The Future of AI" required>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Content Type</label>
-            <select class="form-select" name="content_type" required>
-              <option value="video" selected>Video</option>
-              <option value="short">Short Script</option>
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Voice Language</label>
-            <select class="form-select" name="voice_language" required>
-              {% for lang_code, lang_name in languages.items() %}
+        <form method="POST" action="{{ url_for('index') }}">
+          <div class="form-grid">
+            <div class="field full">
+              <label>Topic</label>
+              <input type="text" name="topic" placeholder="e.g., The Future of Artificial Intelligence" required />
+            </div>
+            <div class="field">
+              <label>Content Type</label>
+              <select name="content_type" required>
+                <option value="video" selected>Full Video</option>
+                <option value="short">Short Script</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Voice Language</label>
+              <select name="voice_language" required>
+                {% for lang_code, lang_name in languages.items() %}
                 <option value="{{ lang_code }}" {% if lang_code == 'en' %}selected{% endif %}>{{ lang_name }}</option>
-              {% endfor %}
-            </select>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Generation Method</label>
+              <select name="ai_option" required>
+                <option value="images">AI Images (DALL-E)</option>
+                <option value="videos" selected>Stock Videos (Pexels)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>YouTube Auth</label>
+              <select name="authenticate" required>
+                <option value="yes" selected>Yes — Authenticate</option>
+                <option value="no">No — Skip</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label>Upload to YouTube?</label>
+              <select name="youtube_upload" required>
+                <option value="no">No — Generate only</option>
+                <option value="yes">Yes — Upload after generation</option>
+              </select>
+            </div>
           </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Generation Method</label>
-            <select class="form-select" name="ai_option" required>
-              <option value="images">Generate AI Images</option>
-              <option value="videos" selected>Fetch Stock Videos</option>
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">YouTube Authentication</label>
-            <select class="form-select" name="authenticate" required>
-              <option value="yes" selected>Yes</option>
-              <option value="no">No</option>
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Upload to YouTube?</label>
-            <select class="form-select" name="youtube_upload" required>
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="mt-4">
-          <button type="submit" class="btn btn-primary w-100">Generate Video</button>
-        </div>
-      </form>
-    </div>
-
-    {% if video_path %}
-    <div class="card mt-4">
-      <h5>Video Preview</h5>
-      <video controls class="w-100 mt-2">
-        <source src="{{ url_for('uploaded_file', filename=video_path) }}" type="video/mp4">
-      </video>
-      <div class="mt-3">
-        <a href="{{ url_for('uploaded_file', filename=video_path) }}" class="btn btn-outline-secondary btn-sm" download>Download</a>
-        {% if uploaded_link %}
-        <a href="{{ uploaded_link }}" class="btn btn-outline-primary btn-sm" target="_blank">View on YouTube</a>
-        {% endif %}
+          <button type="submit" class="submit-btn"><i class="fas fa-wand-magic-sparkles" style="margin-right:8px"></i> Generate Video</button>
+        </form>
       </div>
     </div>
-    {% endif %}
 
-    {% if script %}
-    <div class="card mt-4">
-      <h5>Generated Script</h5>
-      <pre style="white-space: pre-wrap;">{{ script }}</pre>
+    {% if video_path or script %}
+    <div class="results">
+      {% if video_path %}
+      <div class="result-card">
+        <h3><i class="fas fa-circle-play"></i> Video Preview</h3>
+        <video controls>
+          <source src="{{ url_for('uploaded_file', filename=video_path) }}" type="video/mp4" />
+        </video>
+        <div class="btn-row">
+          <a href="{{ url_for('uploaded_file', filename=video_path) }}" class="btn-sm primary" download><i class="fas fa-download"></i> Download MP4</a>
+          {% if uploaded_link %}
+          <a href="{{ uploaded_link }}" class="btn-sm" target="_blank"><i class="fab fa-youtube"></i> View on YouTube</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if script %}
+      <div class="result-card">
+        <h3><i class="fas fa-file-lines"></i> Generated Script</h3>
+        <pre>{{ script }}</pre>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
-  </main>
 
-  <!-- Footer -->
-  <footer>
-    © 2025 <strong>Purffle Studios</strong>. All Rights Reserved.
-  </footer>
-
-  <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <footer>&copy; 2025 <strong>Purffle Studios</strong> — PurffleTools &middot; PurffleAI &middot; Purffle.com</footer>
+  </div>
 </body>
 </html>

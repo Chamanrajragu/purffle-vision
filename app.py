@@ -37,12 +37,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # Try to detect magick.exe automatically or use fallback path
 im_path = shutil.which("magick") or r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
 
-if not os.path.exists(im_path):
-    logging.error(f"ImageMagick binary not found at: {im_path}")
-    raise FileNotFoundError(f"ImageMagick binary not found. Please verify the installation path.")
-
-change_settings({"IMAGEMAGICK_BINARY": im_path})
-logging.info(f"ImageMagick successfully linked: {im_path}")
+if os.path.exists(im_path):
+    change_settings({"IMAGEMAGICK_BINARY": im_path})
+    logging.info(f"ImageMagick successfully linked: {im_path}")
+else:
+    logging.warning(f"ImageMagick not found at {im_path} — video generation with text overlays will not work until installed.")
 
 # --------------------------------------------------------------------------------
 # API Keys
@@ -449,6 +448,18 @@ def index():
     available_langs = tts_langs()
 
     if request.method == "POST":
+        missing_keys = []
+        if not openai.api_key:
+            missing_keys.append("OPENAI_API_KEY")
+        if not PEXELS_API_KEY:
+            missing_keys.append("PEXELS_API_KEY")
+        if missing_keys:
+            return render_template("index.html",
+                                   error=f"API keys not configured: {', '.join(missing_keys)}. "
+                                         f"Create a .env file in the project root with your keys "
+                                         f"(see .env.example for the template).",
+                                   languages=available_langs)
+
         authenticate_choice = request.form.get("authenticate")
         content_type = request.form.get("content_type")
         topic = sanitize_filename(request.form.get("topic"))
