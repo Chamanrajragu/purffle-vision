@@ -1,0 +1,550 @@
+import os
+import re
+import logging
+import pickle
+import requests
+import shutil
+
+from flask import Flask, render_template, request, send_from_directory, redirect, url_for
+from gtts import gTTS
+from gtts.lang import tts_langs
+from moviepy.editor import (
+    VideoFileClip,
+    AudioFileClip,
+    concatenate_videoclips,
+    ImageClip,
+    TextClip,
+    CompositeVideoClip
+)
+from moviepy.config import change_settings
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import openai
+
+# --------------------------------------------------------------------------------
+# Flask App Config
+# --------------------------------------------------------------------------------
+app = Flask(__name__)
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# --------------------------------------------------------------------------------
+# ImageMagick Configuration (Auto-Detect + Fallback)
+# --------------------------------------------------------------------------------
+# Try to detect magick.exe automatically or use fallback path
+im_path = shutil.which("magick") or r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
+
+if not os.path.exists(im_path):
+    logging.error(f"ImageMagick binary not found at: {im_path}")
+    raise FileNotFoundError(f"ImageMagick binary not found. Please verify the installation path.")
+
+change_settings({"IMAGEMAGICK_BINARY": im_path})
+logging.info(f"ImageMagick successfully linked: {im_path}")
+
+# --------------------------------------------------------------------------------
+# API Keys
+# --------------------------------------------------------------------------------
+from dotenv import load_dotenv
+load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+
+# --------------------------------------------------------------------------------
+# Directory Configurations
+# --------------------------------------------------------------------------------
+BACKGROUND_VIDEO_FOLDER = "background_videos/"
+OUTPUT_FOLDER = "output_videos/"
+AI_IMAGES_FOLDER = "ai_generated_images/"
+AI_VIDEOS_FOLDER = "ai_generated_videos/"
+UPLOADS_FOLDER = "static/uploads/"
+
+# Ensure all necessary directories exist
+for folder in [
+    BACKGROUND_VIDEO_FOLDER,
+    OUTPUT_FOLDER,
+    AI_IMAGES_FOLDER,
+    AI_VIDEOS_FOLDER,
+    UPLOADS_FOLDER
+]:
+    os.makedirs(folder, exist_ok=True)
+
+# --------------------------------------------------------------------------------
+# YouTube API Scopes
+# --------------------------------------------------------------------------------
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+
+# Directory Configurations
+BACKGROUND_VIDEO_FOLDER = "background_videos/"
+OUTPUT_FOLDER = "output_videos/"
+AI_IMAGES_FOLDER = "ai_generated_images/"
+AI_VIDEOS_FOLDER = "ai_generated_videos/"
+UPLOADS_FOLDER = "static/uploads/"
+
+# Ensure all necessary directories exist
+for folder in [
+    BACKGROUND_VIDEO_FOLDER,
+    OUTPUT_FOLDER,
+    AI_IMAGES_FOLDER,
+    AI_VIDEOS_FOLDER,
+    UPLOADS_FOLDER
+]:
+    os.makedirs(folder, exist_ok=True)
+
+
+# --------------------------------------------------------------------------------
+# Utility Functions
+# --------------------------------------------------------------------------------
+
+def sanitize_filename(name):
+    """
+    Sanitizes the input string to create safe filenames.
+    Replaces invalid characters with underscores.
+    """
+    return re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
+
+def authenticate_youtube():
+    """
+    Authenticates the application with YouTube using OAuth 2.0.
+    Returns a YouTube service object.
+    """
+    creds = None
+    token_path = "token.pickle"
+    try:
+        if os.path.exists(token_path):
+            with open(token_path, "rb") as token:
+                creds = pickle.load(token)
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    os.getenv("GOOGLE_CLIENT_SECRETS_FILE", "credentials.json"), SCOPES
+                )
+                creds = flow.run_local_server(port=8080)
+
+            with open(token_path, "wb") as token:
+                pickle.dump(creds, token)
+
+        return build("youtube", "v3", credentials=creds)
+    except Exception as e:
+        logging.error(f"Authentication error: {e}")
+        raise
+
+def generate_text_content(prompt, length=150):
+    """
+    Generates text content using OpenAI's ChatCompletion API.
+    """
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        if "choices" in response and len(response["choices"]) > 0:
+            return response["choices"][0]["message"]["content"].strip()
+        else:
+            logging.error("No valid choices found in the OpenAI response.")
+            return "Default script content due to an error."
+    except Exception as e:
+        logging.error(f"Error generating script: {e}")
+        return "Default script content due to an error."
+
+def generate_voiceover(text, output_path, language="en"):
+    """
+    Generates a voiceover using gTTS.
+    """
+    try:
+        supported_langs = tts_langs()
+        if language not in supported_langs:
+            logging.warning(f"Language '{language}' not supported. Falling back to English.")
+            language = "en"
+        tts = gTTS(text=text, lang=language)
+        tts.save(output_path)
+        logging.info(f"Voiceover generated using gTTS in language '{language}'.")
+    except Exception as e:
+        logging.error(f"Error generating voiceover with gTTS: {e}")
+        raise
+
+def generate_ai_images(topic, num_images=10):
+    """
+    Generates AI images related to the given topic using OpenAI's Image API.
+    """
+    images = []
+    for i in range(num_images):
+        prompt = f"Create an aesthetically pleasing and detailed image related to {topic}."
+        try:
+            response = openai.Image.create(
+                prompt=prompt,
+                n=1,
+                size="512x512"
+            )
+            image_url = response["data"][0]["url"]
+            image_path = os.path.join(AI_IMAGES_FOLDER, f"{sanitize_filename(topic)}_image_{i}.png")
+
+            # Download the generated image
+            with open(image_path, "wb") as file:
+                file.write(requests.get(image_url).content)
+
+            images.append(image_path)
+            logging.info(f"Generated image {i + 1} for topic '{topic}'.")
+        except Exception as e:
+            logging.error(f"Error generating image {i + 1} for topic '{topic}': {e}")
+    return images
+
+def create_video_from_images(images, voiceover_path, output_path, subtitles):
+    """
+    Creates a slideshow-style video by stitching images together and synchronizing with the voiceover.
+    Each image is displayed for an equal share of the voiceover duration.
+    """
+    try:
+        # Load the audio clip to get its duration
+        audio_clip = AudioFileClip(voiceover_path)
+        audio_duration = audio_clip.duration
+        logging.info(f"Voiceover duration: {audio_duration} seconds.")
+
+        # Determine display duration per image based on the number of subtitles
+        num_subtitles = len(subtitles)
+        image_duration = audio_duration / num_subtitles if num_subtitles > 0 else 4
+
+        clips = []
+        for i, img in enumerate(images[:num_subtitles]):
+            img_clip = ImageClip(img).set_duration(image_duration)
+
+            subtitle = subtitles[i] if i < len(subtitles) else ""
+            text_clip = (TextClip(
+                subtitle,
+                fontsize=18,
+                color="white",
+                bg_color="black",
+                size=(img_clip.w, None)
+            )
+            .set_position(("center", "bottom"))
+            .set_duration(image_duration)
+            .fadein(0.3)
+            .fadeout(0.3))
+
+            composite_clip = CompositeVideoClip([img_clip, text_clip])
+            clips.append(composite_clip)
+
+        final_clip = concatenate_videoclips(clips, method="compose")
+        final_video = final_clip.set_audio(audio_clip).set_duration(audio_duration)
+
+        final_video.write_videofile(output_path, fps=24, codec="libx264", audio_codec="aac")
+
+        logging.info(f"AI-generated video with subtitles created successfully: {output_path}")
+
+        # Close clips
+        final_clip.close()
+        audio_clip.close()
+        for c in clips:
+            c.close()
+
+        return output_path
+    except Exception as e:
+        logging.error(f"Error creating AI-generated video with subtitles: {e}")
+        return None
+
+# --------------------------------------------------------------------------------
+# New Pexels Function with Animated Subtitles
+# --------------------------------------------------------------------------------
+
+def fetch_pexels_videos(topic, max_clips=3):
+    """
+    Searches Pexels for multiple short videos and downloads them locally.
+    Returns a list of local paths to the downloaded files.
+    """
+    url = "https://api.pexels.com/videos/search"
+    headers = {
+        "Authorization": PEXELS_API_KEY,
+        "User-Agent": "Mozilla/5.0"
+    }
+    params = {
+        "query": topic,
+        "orientation": "landscape",
+        "per_page": max_clips
+    }
+
+    resp = requests.get(url, headers=headers, params=params)
+    if resp.status_code != 200:
+        logging.error(f"Error fetching videos from Pexels: {resp.status_code}")
+        return []
+
+    data = resp.json()
+    if "videos" not in data or len(data["videos"]) == 0:
+        logging.warning(f"No videos found for topic '{topic}'.")
+        return []
+
+    downloaded_paths = []
+    for i, video_item in enumerate(data["videos"]):
+        video_files = video_item.get("video_files", [])
+        if not video_files:
+            continue
+
+        # Grab the first file or choose a suitable resolution
+        file_link = video_files[0]["link"]
+        local_path = os.path.join(UPLOADS_FOLDER, f"{sanitize_filename(topic)}_{i}.mp4")
+
+        try:
+            content = requests.get(file_link).content
+            with open(local_path, "wb") as f:
+                f.write(content)
+
+            logging.info(f"Downloaded clip {i+1} to: {local_path}")
+            downloaded_paths.append(local_path)
+        except Exception as e:
+            logging.error(f"Failed to download {file_link}: {e}")
+
+    return downloaded_paths
+
+def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_path, subtitles):
+    """
+    1. Fetch multiple short Pexels video clips for 'topic'.
+    2. Concatenate them.
+    3. Loop or trim to match the exact voiceover duration.
+    4. Overlay the voiceover.
+    5. Add animated subtitles that fade in/out in sync with each subtitle's time slot.
+    6. Save final video to 'output_path'.
+    """
+    # --- 1) Download multiple short clips from Pexels ---
+    video_paths = fetch_pexels_videos(topic, max_clips=3)
+    if not video_paths:
+        logging.error("No Pexels video clips were downloaded.")
+        return None
+
+    # --- 2) Concatenate them ---
+    clips = []
+    for vp in video_paths:
+        try:
+            clip = VideoFileClip(vp)
+            clips.append(clip)
+        except Exception as e:
+            logging.error(f"Error loading clip {vp}: {e}")
+    if not clips:
+        logging.error("No valid video clips to combine.")
+        return None
+
+    combined_clip = concatenate_videoclips(clips, method="compose")
+
+    # --- 3) Match total duration to the voiceover ---
+    audio_clip = AudioFileClip(voiceover_path)
+    audio_duration = audio_clip.duration
+
+    # Trim or loop to match the voiceover length
+    if combined_clip.duration > audio_duration:
+        combined_clip = combined_clip.subclip(0, audio_duration)
+    elif combined_clip.duration < audio_duration:
+        final_clips = []
+        current_duration = 0.0
+        while current_duration < audio_duration:
+            final_clips.append(combined_clip.copy())
+            current_duration += combined_clip.duration
+        extended_clip = concatenate_videoclips(final_clips, method="compose")
+        combined_clip = extended_clip.subclip(0, audio_duration)
+
+    # --- 4) Overlay the voiceover (no subtitles yet) ---
+    final_clip_no_subs = combined_clip.set_audio(audio_clip)
+
+    # --- 5) Add animated subtitles ---
+    num_subs = len(subtitles)
+    if num_subs == 0:
+        # If no subtitles, just use the final clip with voiceover
+        final_clip = final_clip_no_subs
+    else:
+        sub_duration = audio_duration / num_subs
+
+        # Build sub-clips: each sub-clip shows one line of text for sub_duration
+        sub_clips = []
+        for i, line in enumerate(subtitles):
+            start_t = i * sub_duration
+            end_t = start_t + sub_duration
+
+            # Create a semi-transparent text background with fade in/out
+            txt_clip = (TextClip(
+                line,
+                fontsize=40,
+                color='white',
+                size=(combined_clip.w, None),
+                method='caption',
+                align='center',
+                bg_color='rgba(0,0,0,0.5)'  # semi-transparent
+            )
+            .set_position(('center', 'bottom'))
+            .set_start(start_t)
+            .set_duration(sub_duration)
+            .fadein(0.5)
+            .fadeout(0.5))
+
+            sub_clips.append(txt_clip)
+
+        # Overlay subtitles on top of the final_clip_no_subs
+        final_clip = CompositeVideoClip([final_clip_no_subs, *sub_clips], size=combined_clip.size)
+
+    # --- 6) Save final video to 'output_path' ---
+    final_clip.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac')
+    logging.info(f"Final Pexels-based video with subtitles saved at: {output_path}")
+
+    # Cleanup
+    final_clip.close()
+    audio_clip.close()
+    combined_clip.close()
+    for c in clips:
+        c.close()
+
+    return output_path
+
+
+# --------------------------------------------------------------------------------
+# YouTube Upload
+# --------------------------------------------------------------------------------
+
+def upload_video_to_youtube(youtube, video_path, title, description, tags):
+    """
+    Uploads the generated video to YouTube.
+    """
+    body = {
+        "snippet": {
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "categoryId": "22"  # Category ID for People & Blogs; adjust as needed
+        },
+        "status": {
+            "privacyStatus": "public"  # Options: 'public', 'private', 'unlisted'
+        }
+    }
+
+    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+    response = None
+    try:
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                logging.info(f"Upload progress: {int(status.progress() * 100)}%")
+        logging.info("Video uploaded to YouTube successfully.")
+        return response
+    except Exception as e:
+        logging.error(f"Error uploading video to YouTube: {e}")
+        return None
+
+
+# --------------------------------------------------------------------------------
+# Flask Routes
+# --------------------------------------------------------------------------------
+
+@app.route("/uploads/<filename>")
+def uploaded_file(filename):
+    """
+    Serves uploaded/generated video files.
+    """
+    return send_from_directory(UPLOADS_FOLDER, filename)
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    # Get all available languages from gTTS
+    available_langs = tts_langs()
+
+    if request.method == "POST":
+        authenticate_choice = request.form.get("authenticate")
+        content_type = request.form.get("content_type")
+        topic = sanitize_filename(request.form.get("topic"))
+        ai_option = request.form.get("ai_option")
+        youtube_choice = request.form.get("youtube_upload")
+        voice_language = request.form.get("voice_language", "en")
+
+        # Possibly authenticate YouTube
+        youtube = None
+        if authenticate_choice == "yes":
+            try:
+                youtube = authenticate_youtube()
+            except Exception:
+                return render_template("index.html",
+                                       error="YouTube authentication failed.",
+                                       languages=available_langs)
+
+        # Set script length
+        length = 150 if content_type == "video" else 50
+
+        # Get language name from the dict (e.g., 'English' if voice_language == 'en')
+        language_name = available_langs.get(voice_language, "English")
+
+        # Generate script
+        prompt = f"Create a {length}-word YouTube script about {topic} in {language_name}."
+        script = generate_text_content(prompt, length)
+        subtitles = script.split(". ")  # Subtitles: simple split by period & space
+
+        # Generate voiceover
+        voiceover_file = os.path.join(OUTPUT_FOLDER, f"voiceover_{topic}.mp3")
+        try:
+            generate_voiceover(script, voiceover_file, language=voice_language)
+        except Exception:
+            return render_template("index.html",
+                                   error="Failed to generate voiceover.",
+                                   languages=available_langs)
+
+        # Decide the final video file path
+        video_file = os.path.join(UPLOADS_FOLDER, f"{topic}.mp4")
+        video_path = None
+
+        if ai_option == "images":
+            # Create a slideshow-style video with images + subtitles + voiceover
+            images = generate_ai_images(topic, num_images=10)
+            if not images:
+                return render_template("index.html",
+                                       error="Failed to generate images.",
+                                       languages=available_langs)
+
+            video_path = create_video_from_images(images, voiceover_file, video_file, subtitles)
+
+        elif ai_option == "videos":
+            # Create a Pexels-based video with animated subtitles
+            video_path = create_video_from_pexels_clips_with_subtitles(
+                topic,
+                voiceover_file,
+                video_file,
+                subtitles
+            )
+        else:
+            logging.error("Invalid option selected for AI generation.")
+            return render_template("index.html",
+                                   error="Invalid AI option selected.",
+                                   languages=available_langs)
+
+        if not video_path:
+            return render_template("index.html",
+                                   error="Failed to create the final video.",
+                                   languages=available_langs)
+
+        # Optionally upload to YouTube
+        uploaded_link = None
+        if youtube and youtube_choice == "yes":
+            title = f"{topic.capitalize()} - {content_type.capitalize()}"
+            description = f"Explore this amazing {content_type} about {topic}."
+            tags = [content_type, "trending", topic, "viral", "entertainment"]
+
+            upload_response = upload_video_to_youtube(youtube, video_path, title, description, tags)
+            if upload_response:
+                video_id = upload_response.get("id")
+                uploaded_link = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Extract filename for displaying in the template
+        video_filename = os.path.basename(video_path) if video_path else None
+
+        return render_template(
+            "index.html",
+            script=script,
+            video_path=video_filename,
+            uploaded_link=uploaded_link,
+            topic=topic,
+            languages=available_langs
+        )
+
+    # If GET request, just render the form
+    return render_template("index.html", languages=available_langs)
+
+if __name__ == "__main__":
+    app.run(debug=True)
