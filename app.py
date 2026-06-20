@@ -4,8 +4,10 @@ import logging
 import pickle
 import requests
 import shutil
+import uuid
+import threading
 
-from flask import Flask, render_template, request, send_from_directory, redirect, url_for
+from flask import Flask, render_template, request, send_from_directory, redirect, url_for, jsonify
 from gtts import gTTS
 from gtts.lang import tts_langs
 from moviepy.editor import (
@@ -75,23 +77,6 @@ for folder in [
 # YouTube API Scopes
 # --------------------------------------------------------------------------------
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-
-# Directory Configurations
-BACKGROUND_VIDEO_FOLDER = "background_videos/"
-OUTPUT_FOLDER = "output_videos/"
-AI_IMAGES_FOLDER = "ai_generated_images/"
-AI_VIDEOS_FOLDER = "ai_generated_videos/"
-UPLOADS_FOLDER = "static/uploads/"
-
-# Ensure all necessary directories exist
-for folder in [
-    BACKGROUND_VIDEO_FOLDER,
-    OUTPUT_FOLDER,
-    AI_IMAGES_FOLDER,
-    AI_VIDEOS_FOLDER,
-    UPLOADS_FOLDER
-]:
-    os.makedirs(folder, exist_ok=True)
 
 
 # --------------------------------------------------------------------------------
@@ -205,29 +190,34 @@ def create_video_from_images(images, voiceover_path, output_path, subtitles):
         audio_duration = audio_clip.duration
         logging.info(f"Voiceover duration: {audio_duration} seconds.")
 
-        # Determine display duration per image based on the number of subtitles
-        num_subtitles = len(subtitles)
-        image_duration = audio_duration / num_subtitles if num_subtitles > 0 else 4
+        # Spread all images evenly across the voiceover (decoupled from subtitle count
+        # so every generated image is used). Captions are optional.
+        num_images = len(images)
+        image_duration = audio_duration / num_images if num_images > 0 else 4
 
         clips = []
-        for i, img in enumerate(images[:num_subtitles]):
+        for i, img in enumerate(images):
             img_clip = ImageClip(img).set_duration(image_duration)
 
             subtitle = subtitles[i] if i < len(subtitles) else ""
-            text_clip = (TextClip(
-                subtitle,
-                fontsize=18,
-                color="white",
-                bg_color="black",
-                size=(img_clip.w, None)
-            )
-            .set_position(("center", "bottom"))
-            .set_duration(image_duration)
-            .fadein(0.3)
-            .fadeout(0.3))
-
-            composite_clip = CompositeVideoClip([img_clip, text_clip])
-            clips.append(composite_clip)
+            if subtitle:
+                text_clip = (TextClip(
+                    subtitle,
+                    fontsize=24,
+                    color="white",
+                    stroke_color="black",
+                    stroke_width=1,
+                    bg_color="transparent",
+                    size=(img_clip.w, None),
+                    method="caption"
+                )
+                .set_position(("center", "bottom"))
+                .set_duration(image_duration)
+                .fadein(0.3)
+                .fadeout(0.3))
+                clips.append(CompositeVideoClip([img_clip, text_clip]))
+            else:
+                clips.append(img_clip)
 
         final_clip = concatenate_videoclips(clips, method="compose")
         final_video = final_clip.set_audio(audio_clip).set_duration(audio_duration)
@@ -299,7 +289,8 @@ def fetch_pexels_videos(topic, max_clips=3):
 
     return downloaded_paths
 
-def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_path, subtitles):
+def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_path,
+                                                  subtitles, max_clips=3):
     """
     1. Fetch multiple short Pexels video clips for 'topic'.
     2. Concatenate them.
@@ -309,7 +300,7 @@ def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_
     6. Save final video to 'output_path'.
     """
     # --- 1) Download multiple short clips from Pexels ---
-    video_paths = fetch_pexels_videos(topic, max_clips=3)
+    video_paths = fetch_pexels_videos(topic, max_clips=max_clips)
     if not video_paths:
         logging.error("No Pexels video clips were downloaded.")
         return None
@@ -361,15 +352,19 @@ def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_
             start_t = i * sub_duration
             end_t = start_t + sub_duration
 
-            # Create a semi-transparent text background with fade in/out
+            # Readable captions: white text with a black outline (stroke). We avoid an
+            # rgba() bg_color here because many ImageMagick builds reject it and abort
+            # the whole render — a transparent background + stroke is portable.
             txt_clip = (TextClip(
                 line,
                 fontsize=40,
                 color='white',
+                stroke_color='black',
+                stroke_width=2,
                 size=(combined_clip.w, None),
                 method='caption',
                 align='center',
-                bg_color='rgba(0,0,0,0.5)'  # semi-transparent
+                bg_color='transparent'
             )
             .set_position(('center', 'bottom'))
             .set_start(start_t)
@@ -432,6 +427,176 @@ def upload_video_to_youtube(youtube, video_path, title, description, tags):
 
 
 # --------------------------------------------------------------------------------
+# Generation Pipeline (shared by the async job runner and the no-JS fallback)
+# --------------------------------------------------------------------------------
+
+def missing_api_keys():
+    """Return a list of required API keys that are not configured."""
+    missing = []
+    if not openai.api_key:
+        missing.append("OPENAI_API_KEY")
+    if not PEXELS_API_KEY:
+        missing.append("PEXELS_API_KEY")
+    return missing
+
+
+def readiness():
+    """Report which dependencies are configured/available for the UI status banner."""
+    return {
+        "openai": bool(openai.api_key),
+        "pexels": bool(PEXELS_API_KEY),
+        "imagemagick": bool(im_path and os.path.exists(im_path)),
+    }
+
+
+def list_history(limit=12):
+    """List previously generated videos in the uploads folder, newest first."""
+    items = []
+    try:
+        for name in os.listdir(UPLOADS_FOLDER):
+            if not name.lower().endswith(".mp4"):
+                continue
+            path = os.path.join(UPLOADS_FOLDER, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            items.append({
+                "name": name,
+                "mtime": st.st_mtime,
+                "size_mb": round(st.st_size / (1024 * 1024), 1),
+            })
+    except FileNotFoundError:
+        return []
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return items[:limit]
+
+
+def run_pipeline(params, progress=lambda *a, **k: None):
+    """
+    Run the full topic -> video pipeline, reporting progress through `progress(stage, pct, message)`.
+    Returns {"script", "video_path"(basename), "uploaded_link"} or raises on failure.
+    """
+    raw_topic = params["raw_topic"]
+    topic = sanitize_filename(raw_topic)
+    content_type = params.get("content_type", "video")
+    ai_option = params.get("ai_option", "videos")
+    voice_language = params.get("voice_language", "en")
+    youtube_choice = params.get("youtube_choice", "no")
+    authenticate_choice = params.get("authenticate_choice", "no")
+    subtitles_on = params.get("subtitles_on", True)
+    max_clips = params.get("max_clips", 3)
+    available_langs = params["available_langs"]
+
+    # Optional YouTube auth happens inside the job so the HTTP request never blocks on it.
+    youtube = None
+    if authenticate_choice == "yes":
+        progress("auth", 5, "Authenticating with YouTube…")
+        youtube = authenticate_youtube()
+
+    length = 150 if content_type == "video" else 50
+    language_name = available_langs.get(voice_language, "English")
+
+    progress("script", 12, "Writing the script with AI…")
+    prompt = f"Create a {length}-word YouTube script about {raw_topic} in {language_name}."
+    script = generate_text_content(prompt, length)
+    subtitles = script.split(". ")  # Subtitles: simple split by period & space
+
+    progress("voiceover", 32, "Synthesizing the voiceover…")
+    voiceover_file = os.path.join(OUTPUT_FOLDER, f"voiceover_{topic}.mp3")
+    generate_voiceover(script, voiceover_file, language=voice_language)
+
+    subs = subtitles if subtitles_on else []
+    video_file = os.path.join(UPLOADS_FOLDER, f"{topic}.mp4")
+    if ai_option == "images":
+        progress("visuals", 52, "Generating AI images…")
+        images = generate_ai_images(raw_topic, num_images=10)
+        if not images:
+            raise RuntimeError("Failed to generate images.")
+        progress("assembly", 72, "Assembling the video…")
+        video_path = create_video_from_images(images, voiceover_file, video_file, subs)
+    elif ai_option == "videos":
+        progress("visuals", 52, "Fetching stock footage from Pexels…")
+        progress("assembly", 72, "Assembling the video…")
+        video_path = create_video_from_pexels_clips_with_subtitles(
+            raw_topic, voiceover_file, video_file, subs, max_clips=max_clips
+        )
+    else:
+        raise RuntimeError("Invalid AI option selected.")
+
+    if not video_path:
+        raise RuntimeError("Failed to create the final video.")
+
+    progress("export", 90, "Finalizing…")
+    uploaded_link = None
+    if youtube and youtube_choice == "yes":
+        progress("export", 94, "Uploading to YouTube…")
+        title = f"{raw_topic.capitalize()} - {content_type.capitalize()}"
+        description = f"Explore this amazing {content_type} about {raw_topic}."
+        tags = [content_type, "trending", raw_topic, "viral", "entertainment"]
+        upload_response = upload_video_to_youtube(youtube, video_path, title, description, tags)
+        if upload_response:
+            video_id = upload_response.get("id")
+            uploaded_link = f"https://www.youtube.com/watch?v={video_id}"
+
+    progress("done", 100, "Your video is ready!")
+    return {
+        "script": script,
+        "video_path": os.path.basename(video_path),
+        "uploaded_link": uploaded_link,
+    }
+
+
+# In-memory job store for async generation (single-process Flask dev server).
+_jobs = {}
+_jobs_lock = threading.Lock()
+
+
+def _set_job(job_id, **kw):
+    with _jobs_lock:
+        _jobs.setdefault(job_id, {}).update(kw)
+
+
+def _get_job(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _run_job(job_id, params):
+    def progress(stage, pct, message):
+        _set_job(job_id, stage=stage, progress=pct, message=message)
+    try:
+        result = run_pipeline(params, progress)
+        _set_job(job_id, status="done", progress=100, stage="done",
+                 message="Your video is ready!", result=result)
+    except Exception as e:
+        logging.error(f"Generation job {job_id} failed: {e}")
+        _set_job(job_id, status="error",
+                 message=str(e) or "Generation failed. Check the server logs.")
+
+
+def _collect_params():
+    """Pull and validate generation parameters from the current request form."""
+    raw_topic = (request.form.get("topic") or "").strip()
+    try:
+        max_clips = max(1, min(8, int(request.form.get("clip_count", "3"))))
+    except (TypeError, ValueError):
+        max_clips = 3
+    return {
+        "raw_topic": raw_topic,
+        "content_type": request.form.get("content_type", "video"),
+        "ai_option": request.form.get("ai_option", "videos"),
+        "voice_language": request.form.get("voice_language", "en"),
+        "youtube_choice": request.form.get("youtube_upload", "no"),
+        "authenticate_choice": request.form.get("authenticate", "no"),
+        "subtitles_on": request.form.get("subtitles", "on") != "off",
+        "max_clips": max_clips,
+        "available_langs": tts_langs(),
+    }
+
+
+# --------------------------------------------------------------------------------
 # Flask Routes
 # --------------------------------------------------------------------------------
 
@@ -442,120 +607,88 @@ def uploaded_file(filename):
     """
     return send_from_directory(UPLOADS_FOLDER, filename)
 
+
+@app.route("/generate", methods=["POST"])
+def generate():
+    """Start an async generation job and return its id (used by the live progress UI)."""
+    missing = missing_api_keys()
+    if missing:
+        return jsonify({"error": f"API keys not configured: {', '.join(missing)}. "
+                                 f"Create a .env file (see .env.example)."}), 400
+    params = _collect_params()
+    if not params["raw_topic"]:
+        return jsonify({"error": "Please enter a topic."}), 400
+
+    # Keep the in-memory store bounded by pruning the oldest finished jobs.
+    with _jobs_lock:
+        if len(_jobs) > 40:
+            finished = [k for k, v in _jobs.items()
+                        if v.get("status") in ("done", "error")]
+            for k in finished[:len(_jobs) - 40]:
+                _jobs.pop(k, None)
+
+    job_id = uuid.uuid4().hex
+    _set_job(job_id, status="running", stage="queued", progress=2,
+             message="Starting the pipeline…", result=None)
+    threading.Thread(target=_run_job, args=(job_id, params), daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/status/<job_id>")
+def job_status(job_id):
+    """Return the current state of a generation job for the polling UI."""
+    job = _get_job(job_id)
+    if not job:
+        return jsonify({"error": "Unknown or expired job."}), 404
+    return jsonify(job)
+
+
+@app.route("/health")
+def health():
+    """Lightweight readiness probe (API keys + ImageMagick)."""
+    r = readiness()
+    return jsonify({"status": "ok" if all(r.values()) else "degraded", "checks": r})
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     # Get all available languages from gTTS
     available_langs = tts_langs()
 
     if request.method == "POST":
-        missing_keys = []
-        if not openai.api_key:
-            missing_keys.append("OPENAI_API_KEY")
-        if not PEXELS_API_KEY:
-            missing_keys.append("PEXELS_API_KEY")
-        if missing_keys:
+        # No-JS fallback: run synchronously and render the result page.
+        missing = missing_api_keys()
+        if missing:
             return render_template("index.html",
-                                   error=f"API keys not configured: {', '.join(missing_keys)}. "
+                                   error=f"API keys not configured: {', '.join(missing)}. "
                                          f"Create a .env file in the project root with your keys "
                                          f"(see .env.example for the template).",
                                    languages=available_langs)
-
-        authenticate_choice = request.form.get("authenticate")
-        content_type = request.form.get("content_type")
-        topic = sanitize_filename(request.form.get("topic"))
-        ai_option = request.form.get("ai_option")
-        youtube_choice = request.form.get("youtube_upload")
-        voice_language = request.form.get("voice_language", "en")
-
-        # Possibly authenticate YouTube
-        youtube = None
-        if authenticate_choice == "yes":
-            try:
-                youtube = authenticate_youtube()
-            except Exception:
-                return render_template("index.html",
-                                       error="YouTube authentication failed.",
-                                       languages=available_langs)
-
-        # Set script length
-        length = 150 if content_type == "video" else 50
-
-        # Get language name from the dict (e.g., 'English' if voice_language == 'en')
-        language_name = available_langs.get(voice_language, "English")
-
-        # Generate script
-        prompt = f"Create a {length}-word YouTube script about {topic} in {language_name}."
-        script = generate_text_content(prompt, length)
-        subtitles = script.split(". ")  # Subtitles: simple split by period & space
-
-        # Generate voiceover
-        voiceover_file = os.path.join(OUTPUT_FOLDER, f"voiceover_{topic}.mp3")
+        params = _collect_params()
+        if not params["raw_topic"]:
+            return render_template("index.html", error="Please enter a topic.",
+                                   languages=available_langs)
         try:
-            generate_voiceover(script, voiceover_file, language=voice_language)
-        except Exception:
-            return render_template("index.html",
-                                   error="Failed to generate voiceover.",
+            result = run_pipeline(params)
+        except Exception as e:
+            return render_template("index.html", error=str(e) or "Generation failed.",
                                    languages=available_langs)
-
-        # Decide the final video file path
-        video_file = os.path.join(UPLOADS_FOLDER, f"{topic}.mp4")
-        video_path = None
-
-        if ai_option == "images":
-            # Create a slideshow-style video with images + subtitles + voiceover
-            images = generate_ai_images(topic, num_images=10)
-            if not images:
-                return render_template("index.html",
-                                       error="Failed to generate images.",
-                                       languages=available_langs)
-
-            video_path = create_video_from_images(images, voiceover_file, video_file, subtitles)
-
-        elif ai_option == "videos":
-            # Create a Pexels-based video with animated subtitles
-            video_path = create_video_from_pexels_clips_with_subtitles(
-                topic,
-                voiceover_file,
-                video_file,
-                subtitles
-            )
-        else:
-            logging.error("Invalid option selected for AI generation.")
-            return render_template("index.html",
-                                   error="Invalid AI option selected.",
-                                   languages=available_langs)
-
-        if not video_path:
-            return render_template("index.html",
-                                   error="Failed to create the final video.",
-                                   languages=available_langs)
-
-        # Optionally upload to YouTube
-        uploaded_link = None
-        if youtube and youtube_choice == "yes":
-            title = f"{topic.capitalize()} - {content_type.capitalize()}"
-            description = f"Explore this amazing {content_type} about {topic}."
-            tags = [content_type, "trending", topic, "viral", "entertainment"]
-
-            upload_response = upload_video_to_youtube(youtube, video_path, title, description, tags)
-            if upload_response:
-                video_id = upload_response.get("id")
-                uploaded_link = f"https://www.youtube.com/watch?v={video_id}"
-
-        # Extract filename for displaying in the template
-        video_filename = os.path.basename(video_path) if video_path else None
-
         return render_template(
             "index.html",
-            script=script,
-            video_path=video_filename,
-            uploaded_link=uploaded_link,
-            topic=topic,
-            languages=available_langs
+            script=result["script"],
+            video_path=result["video_path"],
+            uploaded_link=result["uploaded_link"],
+            languages=available_langs,
         )
 
     # If GET request, just render the form
-    return render_template("index.html", languages=available_langs)
+    return render_template("index.html", languages=available_langs,
+                           ready=readiness(), history=list_history())
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Configurable via environment; debug defaults OFF (the Werkzeug debugger allows
+    # arbitrary code execution if the port is ever exposed).
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    app.run(host=host, port=port, debug=debug)
