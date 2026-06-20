@@ -159,12 +159,27 @@
     footer{text-align:center;padding:32px;border-top:1px solid rgba(255,255,255,.06);color:var(--text3);font-size:13px}
     footer strong{color:var(--text2)}
 
+    /* Example topic chips */
+    .topic-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .tchip{font-size:12px;font-weight:500;color:var(--text2);background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:100px;cursor:pointer;transition:.15s}
+    .tchip:hover{color:#fff;border-color:var(--purple);background:rgba(168,85,247,.12)}
+
     @media(max-width:640px){
       nav{padding:14px 20px}
       .hero{padding:48px 20px 32px}
+      .hero h1{font-size:30px}
       .form-grid{grid-template-columns:1fr}
-      .glass-card{padding:24px}
+      .glass-card{padding:22px}
       .steps{flex-wrap:wrap;gap:0}
+      .step-label{font-size:10px}
+      .gallery{grid-template-columns:1fr 1fr}
+      .result-card{padding:22px}
+      .loader-card{padding:32px 22px}
+    }
+    @media(max-width:420px){
+      .gallery{grid-template-columns:1fr}
+      .status-row{gap:6px}
+      .chip{font-size:11px;padding:5px 10px}
     }
   </style>
 </head>
@@ -224,13 +239,28 @@
           <div class="form-grid">
             <div class="field full">
               <label>Topic</label>
-              <input type="text" name="topic" placeholder="e.g., The Future of Artificial Intelligence" required />
+              <input type="text" name="topic" id="topicInput" placeholder="e.g., The Future of Artificial Intelligence" required />
+              <div class="topic-chips" id="topicChips">
+                <span class="tchip">The Future of Artificial Intelligence</span>
+                <span class="tchip">5 Mind-Blowing Space Facts</span>
+                <span class="tchip">How Bitcoin Works in 60 Seconds</span>
+                <span class="tchip">Secrets of the Ancient Pyramids</span>
+                <span class="tchip">Daily Habits of Successful People</span>
+              </div>
             </div>
             <div class="field">
               <label>Content Type</label>
               <select name="content_type" required>
                 <option value="video" selected>Full Video</option>
                 <option value="short">Short Script</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Aspect Ratio</label>
+              <select name="aspect">
+                <option value="16:9" selected>16:9 — Landscape (YouTube)</option>
+                <option value="9:16">9:16 — Vertical (Shorts / Reels / TikTok)</option>
+                <option value="1:1">1:1 — Square (Feed posts)</option>
               </select>
             </div>
             <div class="field">
@@ -389,6 +419,19 @@
         navigator.clipboard.writeText(text).then(done, function () { done(); });
       } else { done(); }
     });
+
+    // Example-topic chips fill the topic input.
+    (function () {
+      var input = document.getElementById('topicInput');
+      var chips = document.getElementById('topicChips');
+      if (!input || !chips) return;
+      chips.addEventListener('click', function (e) {
+        var chip = e.target.closest('.tchip');
+        if (!chip) return;
+        input.value = chip.textContent.trim();
+        input.focus();
+      });
+    })();
 
     (function () {
       var form = document.getElementById('genForm');

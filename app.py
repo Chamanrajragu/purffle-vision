@@ -19,6 +19,10 @@ from moviepy.editor import (
     CompositeVideoClip
 )
 from moviepy.config import change_settings
+try:
+    from moviepy.video.fx.crop import crop as _mpy_crop
+except Exception:  # pragma: no cover - older/newer moviepy layouts
+    _mpy_crop = None
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -89,6 +93,32 @@ def sanitize_filename(name):
     Replaces invalid characters with underscores.
     """
     return re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
+
+
+# Aspect ratio presets -> (width, height) target. 16:9 keeps native (no transform).
+ASPECT_PRESETS = {
+    "16:9": None,            # landscape — leave clips as-is (default, safest)
+    "9:16": (720, 1280),     # vertical — Shorts / Reels / TikTok
+    "1:1": (1080, 1080),     # square — feed posts
+}
+ASPECT_ORIENTATION = {"16:9": "landscape", "9:16": "portrait", "1:1": "square"}
+
+
+def fit_to_aspect(clip, size):
+    """Resize-to-cover then center-crop `clip` to `size`=(w,h). Safe: returns the
+    original clip unchanged if no size is given or anything goes wrong, so a crop
+    issue can never break video generation."""
+    if not size or _mpy_crop is None:
+        return clip
+    tw, th = size
+    try:
+        scale = max(tw / clip.w, th / clip.h)
+        resized = clip.resize(scale)
+        return _mpy_crop(resized, x_center=resized.w / 2, y_center=resized.h / 2,
+                         width=tw, height=th)
+    except Exception as e:
+        logging.error(f"Aspect fit to {size} failed, using original framing: {e}")
+        return clip
 
 def authenticate_youtube():
     """
@@ -179,10 +209,11 @@ def generate_ai_images(topic, num_images=10):
             logging.error(f"Error generating image {i + 1} for topic '{topic}': {e}")
     return images
 
-def create_video_from_images(images, voiceover_path, output_path, subtitles):
+def create_video_from_images(images, voiceover_path, output_path, subtitles, target_size=None):
     """
     Creates a slideshow-style video by stitching images together and synchronizing with the voiceover.
     Each image is displayed for an equal share of the voiceover duration.
+    `target_size` (w, h) optionally reframes each image to a chosen aspect ratio.
     """
     try:
         # Load the audio clip to get its duration
@@ -197,7 +228,7 @@ def create_video_from_images(images, voiceover_path, output_path, subtitles):
 
         clips = []
         for i, img in enumerate(images):
-            img_clip = ImageClip(img).set_duration(image_duration)
+            img_clip = fit_to_aspect(ImageClip(img).set_duration(image_duration), target_size)
 
             subtitle = subtitles[i] if i < len(subtitles) else ""
             if subtitle:
@@ -241,7 +272,7 @@ def create_video_from_images(images, voiceover_path, output_path, subtitles):
 # New Pexels Function with Animated Subtitles
 # --------------------------------------------------------------------------------
 
-def fetch_pexels_videos(topic, max_clips=3):
+def fetch_pexels_videos(topic, max_clips=3, orientation="landscape"):
     """
     Searches Pexels for multiple short videos and downloads them locally.
     Returns a list of local paths to the downloaded files.
@@ -253,7 +284,7 @@ def fetch_pexels_videos(topic, max_clips=3):
     }
     params = {
         "query": topic,
-        "orientation": "landscape",
+        "orientation": orientation,
         "per_page": max_clips
     }
 
@@ -290,7 +321,8 @@ def fetch_pexels_videos(topic, max_clips=3):
     return downloaded_paths
 
 def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_path,
-                                                  subtitles, max_clips=3):
+                                                  subtitles, max_clips=3,
+                                                  target_size=None, orientation="landscape"):
     """
     1. Fetch multiple short Pexels video clips for 'topic'.
     2. Concatenate them.
@@ -298,9 +330,10 @@ def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_
     4. Overlay the voiceover.
     5. Add animated subtitles that fade in/out in sync with each subtitle's time slot.
     6. Save final video to 'output_path'.
+    `target_size` (w, h) optionally reframes the montage to a chosen aspect ratio.
     """
     # --- 1) Download multiple short clips from Pexels ---
-    video_paths = fetch_pexels_videos(topic, max_clips=max_clips)
+    video_paths = fetch_pexels_videos(topic, max_clips=max_clips, orientation=orientation)
     if not video_paths:
         logging.error("No Pexels video clips were downloaded.")
         return None
@@ -334,6 +367,9 @@ def create_video_from_pexels_clips_with_subtitles(topic, voiceover_path, output_
             current_duration += combined_clip.duration
         extended_clip = concatenate_videoclips(final_clips, method="compose")
         combined_clip = extended_clip.subclip(0, audio_duration)
+
+    # --- 3b) Reframe to the requested aspect ratio (vertical/square) if any ---
+    combined_clip = fit_to_aspect(combined_clip, target_size)
 
     # --- 4) Overlay the voiceover (no subtitles yet) ---
     final_clip_no_subs = combined_clip.set_audio(audio_clip)
@@ -486,6 +522,9 @@ def run_pipeline(params, progress=lambda *a, **k: None):
     authenticate_choice = params.get("authenticate_choice", "no")
     subtitles_on = params.get("subtitles_on", True)
     max_clips = params.get("max_clips", 3)
+    aspect = params.get("aspect", "16:9")
+    target_size = ASPECT_PRESETS.get(aspect)
+    orientation = ASPECT_ORIENTATION.get(aspect, "landscape")
     available_langs = params["available_langs"]
 
     # Optional YouTube auth happens inside the job so the HTTP request never blocks on it.
@@ -514,12 +553,14 @@ def run_pipeline(params, progress=lambda *a, **k: None):
         if not images:
             raise RuntimeError("Failed to generate images.")
         progress("assembly", 72, "Assembling the video…")
-        video_path = create_video_from_images(images, voiceover_file, video_file, subs)
+        video_path = create_video_from_images(images, voiceover_file, video_file, subs,
+                                              target_size=target_size)
     elif ai_option == "videos":
         progress("visuals", 52, "Fetching stock footage from Pexels…")
         progress("assembly", 72, "Assembling the video…")
         video_path = create_video_from_pexels_clips_with_subtitles(
-            raw_topic, voiceover_file, video_file, subs, max_clips=max_clips
+            raw_topic, voiceover_file, video_file, subs, max_clips=max_clips,
+            target_size=target_size, orientation=orientation
         )
     else:
         raise RuntimeError("Invalid AI option selected.")
@@ -583,6 +624,9 @@ def _collect_params():
         max_clips = max(1, min(8, int(request.form.get("clip_count", "3"))))
     except (TypeError, ValueError):
         max_clips = 3
+    aspect = request.form.get("aspect", "16:9")
+    if aspect not in ASPECT_PRESETS:
+        aspect = "16:9"
     return {
         "raw_topic": raw_topic,
         "content_type": request.form.get("content_type", "video"),
@@ -592,6 +636,7 @@ def _collect_params():
         "authenticate_choice": request.form.get("authenticate", "no"),
         "subtitles_on": request.form.get("subtitles", "on") != "off",
         "max_clips": max_clips,
+        "aspect": aspect,
         "available_langs": tts_langs(),
     }
 
